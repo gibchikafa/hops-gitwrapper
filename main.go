@@ -304,7 +304,7 @@ func executeClone(commandConfig string)  {
 	if err == nil {
 		Info("Error when getting commits %s", err)
 		updateCommitsOnRemote(commits, branchName)
-	} 
+	}
 	sendCommandFinalResultResponseToRemote("Repository successfully cloned", SuccessState)
 }
 
@@ -332,7 +332,7 @@ func sendCommandFinalResultResponseToRemote(message string, finalStatus string) 
 }
 
 func updateCommitsOnRemote(commits []CommitDTO, branchName string) {
-	remoteEndpointUrl := "https://10.0.2.15:8181/hopsworks-api/api/project/"+projectIdStr+"/git/" + repositoryId+ "/branch/"+ branchName
+	remoteEndpointUrl := "https://10.0.2.15:8181/hopsworks-api/api/project/"+projectIdStr+"/git/" + repositoryId+ "/branch/"+ branchName + "/commits"
 	postBody := new(bytes.Buffer)
 	body := &BranchCommitsDTO{
 		Commits: commits,
