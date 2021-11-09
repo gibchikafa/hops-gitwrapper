@@ -300,6 +300,7 @@ func executeClone(commandConfig string)  {
 	//update the repository
 	updateRepositoryOnRemote(cloneCommandConfig, branchName)
 	commits, err := getCommits(r)
+	Info("Commits are %s", commits)
 	if err != nil {
 		Info("Error when getting commits %s", err)
 		updateCommitsOnRemote(commits, branchName)
