@@ -332,12 +332,14 @@ func sendCommandFinalResultResponseToRemote(message string, finalStatus string) 
 }
 
 func updateCommitsOnRemote(commits []CommitDTO, branchName string) {
-	remoteEndpointUrl := "https://10.0.2.15:8181/hopsworks-api/api/project/"+projectIdStr+"/git/" + repositoryId	+ "/branch/"+ branchName
+	remoteEndpointUrl := "https://10.0.2.15:8181/hopsworks-api/api/project/"+projectIdStr+"/git/" + repositoryId+ "/branch/"+ branchName
 	postBody := new(bytes.Buffer)
+	Info("Reached here 1")
 	body := &BranchCommitsDTO{
 		Commits: commits,
 	}
 	json.NewEncoder(postBody).Encode(body)
+	Info("Reached here 2")
 	sendHttpReq(remoteEndpointUrl, postBody, http.MethodPut)
 }
 
