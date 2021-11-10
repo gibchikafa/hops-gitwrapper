@@ -98,16 +98,23 @@ type CheckoutCommandConfiguration struct {
 	Path string `json:"path"`
 	BranchName string `json:"branchName"`
 	Force bool `json:"force"`
+	Commit string `json:"commit"`
 }
 
 type GitRepositoryDTO struct {
 	RemoteName string `json:"remoteName"`
 	DefaultBranch string `json:"defaultBranch"`
+	CurrentBranch string `json:"currentBranch"`
+	CurrentCommitHead string `json:"currentCommitHead"`
 }
-
 
 type BranchCommitsDTO struct {
 	Commits  []CommitDTO `json:"commits"`
+}
+
+type GitRepositoryHead struct {
+	BranchName string `json:"branchName"`
+	CommitHash string `json:"commit"`
 }
 
 var gitCommand string
@@ -167,11 +174,26 @@ func executeCheckout(commandConfig string) {
 	branch := fmt.Sprintf("refs/heads/%s", checkoutCommandConfig.BranchName)
 	b := plumbing.ReferenceName(branch)
 	Info("Reference is %s", b)
-	err = w.Checkout(&git.CheckoutOptions{
+	checkoutOptions := &git.CheckoutOptions{
 		Branch: b,
 		Force: checkoutCommandConfig.Force,
-	})
+	}
+	if checkoutCommandConfig.Commit != "" {
+		checkoutOptions.Hash = plumbing.NewHash(checkoutCommandConfig.Commit)
+	}
+	err = w.Checkout(checkoutOptions)
 	CheckIfError(err)
+	_, currentCommitHead, err := getCurrentBranchAndCommit(r)
+	if err != nil {
+		//retry
+		_, currentCommitHead, err = getCurrentBranchAndCommit(r)
+	}
+	updateRepositoryHead(checkoutCommandConfig.BranchName, currentCommitHead)
+	commits, err := getCommits(r)
+	if err == nil {
+		Info("Error when getting commits %s", err)
+		updateCommitsOnRemote(commits, checkoutCommandConfig.BranchName)
+	}
 	sendCommandFinalResultResponseToRemote("Checked out to branch " + checkoutCommandConfig.BranchName, SuccessState)
 }
 
@@ -191,6 +213,11 @@ func executeCreateBranch(commandConfig string) {
 	// The created reference is saved in the storage.
 	err = r.Storer.SetReference(ref)
 	CheckIfError(err)
+	commits, err := getCommits(r)
+	if err == nil {
+		Info("Error when getting commits %s", err)
+		updateCommitsOnRemote(commits, branchName)
+	}
 	sendCommandFinalResultResponseToRemote("New branch successfully created.", SuccessState)
 }
 
@@ -222,7 +249,6 @@ func executeCommit(commandConfig string)  {
 	CheckIfError(err)
 	w, err := r.Worktree()
 	CheckIfError(err)
-
 	// Check the status.
 	Info("git status --porcelain")
 	status, err := w.Status()
@@ -239,9 +265,9 @@ func executeCommit(commandConfig string)  {
 
 	//check new status
 	Info("git status --porcelain")
-	new_status, err := w.Status()
+	newStatus, err := w.Status()
 	CheckIfError(err)
-	Info("Current Status is %s", new_status)
+	Info("Current Status is %s", newStatus)
 
 	commit, err := w.Commit(commitCommandConfig.Message, &git.CommitOptions{
 		Author: &plumbing_object.Signature{
@@ -251,7 +277,8 @@ func executeCommit(commandConfig string)  {
 		},
 	})
 	CheckIfError(err)
-
+	Info("Added commit is %s", commit)
+	Info("Current commit hash is %s", commit)
 	//Get the current HEAD to verify that all worked well.
 	/*
 	Info("Git show  -s")
@@ -260,6 +287,18 @@ func executeCommit(commandConfig string)  {
 	Info("Commit object %s", obj)*/
 
 	// We can verify if all worked well by trying to find the commit object later.
+	/*currentBranch, currentCommitHead, err := getCurrentBranchAndCommit(r)
+	if err != nil {
+		//retry
+		_, currentCommitHead, err = getCurrentBranchAndCommit(r)
+	}
+	updateRepositoryHead(currentBranch, currentCommitHead)*/
+	/*commits, err := getCommits(r)
+	if err == nil {
+		updateCommitsOnRemote(commits, currentBranchName)
+	} else {
+		Info("Error when getting commits %s", err)
+	}*/
 	sendCommandFinalResultResponseToRemote("Commit was successful. Current head is " + commit.String(), SuccessState)
 }
 
@@ -270,35 +309,24 @@ func executeClone(commandConfig string)  {
 	url := cloneCommandConfig.Url
 	Info("Command dir path is %s ", cloneCommandConfig.Path)
 	directory := userDir + cloneCommandConfig.Path
-
 	gitCloneOptions := &git.CloneOptions{
 		URL:               url,
 		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
 		Progress: os.Stdout,
 	}
-
 	gitCloneOptions.Auth = &git_http.BasicAuth {
 		Username: gitUsername, // yes, this can be anything except an empty string
 		Password: gitToken,
 	}
-
 	r, err := git.PlainClone(directory, false, gitCloneOptions)
 	CheckIfError(err)
-
-	// ... retrieving the branch being pointed by HEAD
-	ref, err := r.Head()
-	CheckIfError(err)
-	
-	branchName := strings.ReplaceAll(ref.Name().String(), "refs/heads/", "")
-	Info("Branch name on remote is %s", branchName)
-	// ... retrieving the commit object
-	commit, err := r.CommitObject(ref.Hash())
-	CheckIfError(err)
-	commitHash := strings.TrimSpace(strings.ReplaceAll(commit.String(), "commit", ""))
-	Info("Commit %s", commitHash)
-
+	branchName, commitHash, err := getCurrentBranchAndCommit(r)
+	if err != nil {
+		//retry
+		branchName, commitHash, _ = getCurrentBranchAndCommit(r)
+	}
 	//update the repository
-	updateRepositoryOnRemote(cloneCommandConfig, branchName)
+	updateRepositoryOnRemote(cloneCommandConfig, branchName, commitHash)
 	commits, err := getCommits(r)
 	Info("Commits are %s", commits)
 	if err == nil {
@@ -308,11 +336,24 @@ func executeClone(commandConfig string)  {
 	sendCommandFinalResultResponseToRemote("Repository successfully cloned", SuccessState)
 }
 
-func updateRepositoryOnRemote(configuration CloneCommandConfiguration, branchName string) {
+func updateRepositoryHead(branchName string, commitHash string) {
+	remoteEndpointUrl = "https://10.0.2.15:8181/hopsworks-api/api/project/"+projectIdStr+"/git/"+repositoryId+"/repository/head"
+	body := &GitRepositoryHead {
+		BranchName: branchName,
+		CommitHash: commitHash,
+	}
+	postBody := new(bytes.Buffer)
+	json.NewEncoder(postBody).Encode(body)
+	sendHttpReq(remoteEndpointUrl, postBody, http.MethodPut)
+}
+
+func updateRepositoryOnRemote(configuration CloneCommandConfiguration, branchName string, commitHash string) {
 	remoteEndpointUrl = "https://10.0.2.15:8181/hopsworks-api/api/project/"+projectIdStr+"/git/"+repositoryId+"/repository"
 	body := &GitRepositoryDTO {
 		RemoteName: DefaultRemoteName,
 		DefaultBranch: branchName,
+		CurrentBranch: branchName,
+		CurrentCommitHead: commitHash,
 	}
 	postBody := new(bytes.Buffer)
 	json.NewEncoder(postBody).Encode(body)
@@ -445,4 +486,22 @@ func getCommits(r *git.Repository) (commitsDTOs []CommitDTO, err error){
 		count++
 	}
 	return commitsDTOs, nil
+}
+
+func getCurrentBranchAndCommit(r *git.Repository) (branchName string, commitHash string, err error) {
+	// ... retrieving the branch being pointed by HEAD
+	ref, err := r.Head()
+	if err != nil  {
+		return branchName, commitHash, err
+	}
+	branchName = strings.ReplaceAll(ref.Name().String(), "refs/heads/", "")
+	Info("Branch name on remote is %s", branchName)
+	// ... retrieving the commit object
+	commit, err := r.CommitObject(ref.Hash())
+	if err != nil  {
+		return branchName, commitHash, err
+	}
+	commitHash = strings.TrimSpace(strings.ReplaceAll(commit.String(), "commit", ""))
+	Info("Commit %s", commitHash)
+	return branchName, commitHash, nil
 }
