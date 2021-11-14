@@ -191,7 +191,6 @@ func executeCheckout(commandConfig string) {
 	updateRepositoryHead(checkoutCommandConfig.BranchName, currentCommitHead)
 	commits, err := getCommits(r)
 	if err == nil {
-		Info("Error when getting commits %s", err)
 		updateCommitsOnRemote(commits, checkoutCommandConfig.BranchName)
 	}
 	sendCommandFinalResultResponseToRemote("Checked out to branch " + checkoutCommandConfig.BranchName, SuccessState)
@@ -314,9 +313,11 @@ func executeClone(commandConfig string)  {
 		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
 		Progress: os.Stdout,
 	}
-	gitCloneOptions.Auth = &git_http.BasicAuth {
-		Username: gitUsername, // yes, this can be anything except an empty string
-		Password: gitToken,
+	if gitUsername != "" && gitToken != "" {
+		gitCloneOptions.Auth = &git_http.BasicAuth {
+			Username: gitUsername, // yes, this can be anything except an empty string
+			Password: gitToken,
+		}
 	}
 	r, err := git.PlainClone(directory, false, gitCloneOptions)
 	CheckIfError(err)
@@ -501,7 +502,7 @@ func getCurrentBranchAndCommit(r *git.Repository) (branchName string, commitHash
 	if err != nil  {
 		return branchName, commitHash, err
 	}
-	commitHash = strings.TrimSpace(strings.ReplaceAll(commit.String(), "commit", ""))
+	commitHash = commit.Hash.String()
 	Info("Commit %s", commitHash)
 	return branchName, commitHash, nil
 }
