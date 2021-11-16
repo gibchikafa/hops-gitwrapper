@@ -313,6 +313,8 @@ func executeClone(commandConfig string)  {
 		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
 		Progress: os.Stdout,
 	}
+	Info("Git username is %s", gitUsername)
+	Info("Git password is %s", gitToken)
 	if gitUsername != "" && gitToken != "" {
 		gitCloneOptions.Auth = &git_http.BasicAuth {
 			Username: gitUsername, // yes, this can be anything except an empty string
