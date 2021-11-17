@@ -33,6 +33,7 @@ const (
 	Push string = "push"
 	CreateBranch string = "create_branch"
 	Checkout string = "checkout"
+	Status string = "status"
 )
 
 type GitCommandExecutionFinalStatus struct {
@@ -90,6 +91,12 @@ type CreateBranchCommandConfiguration struct {
 	CommandType string `json:"commandType"`
 	Path string `json:"path"`
 	NewBranchName string `json:"branchName"`
+}
+
+type StatusCommandConfiguration struct {
+	Type string `json:"type"`
+	CommandType string `json:"commandType"`
+	Path string `json:"path"`
 }
 
 type CheckoutCommandConfiguration struct {
@@ -157,9 +164,26 @@ func main() {
 		executeCreateBranch(commandConfig)
 	case Checkout:
 		executeCheckout(commandConfig)
+	case Status:
+		executeStatus(commandConfig)
 	default:
 		sendCommandFinalResultResponseToRemote("Unknown command type", FailedState)
 	}
+}
+
+func executeStatus(commandConfig string) {
+	var statusCommandConfig StatusCommandConfiguration
+	json.Unmarshal([]byte(commandConfig), &statusCommandConfig)
+	directory := userDir + statusCommandConfig.Path
+	r, err := git.PlainOpen(directory)
+	CheckIfError(err)
+	w, err := r.Worktree()
+	CheckIfError(err)
+	// Check the status.
+	Info("git status --porcelain")
+	status, err := w.Status()
+	CheckIfError(err)
+	sendCommandFinalResultResponseToRemote(status.String(), SuccessState)
 }
 
 func executeCheckout(commandConfig string) {
