@@ -336,7 +336,7 @@ func executeClone(commandConfig string)  {
 		URL:               url,
 		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
 		Progress: os.Stdout,
-		Depth: 20,
+		Depth: 1,
 	}
 	Info("Git username is %s", gitUsername)
 	Info("Git password is %s", gitToken)
